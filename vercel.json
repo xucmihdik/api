@@ -1,14 +1,15 @@
 {
+  "version": 2,
   "builds": [
     {
-      "src": "api/wsgi.py",
+      "src": "api/api.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/stock/GetStock",
-      "dest": "api/wsgi.py"
+      "dest": "api/api.py"
     }
   ]
 }

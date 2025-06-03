@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 import requests
 from datetime import datetime
-import pytz  
+import pytz
 
 app = Flask(__name__)
 
@@ -46,7 +46,6 @@ def fetch_stocks():
             "message": f"Problem with request: {str(e)}"
         }, None
 
-
 def format_stock_items(items):
     if not isinstance(items, list):
         return []
@@ -60,13 +59,11 @@ def format_stock_items(items):
         for item in items
     ]
 
-
 def format_last_seen_items(items):
     if not isinstance(items, list):
         return []
 
     tz = pytz.timezone("America/New_York")
-
     formatted = []
     for item in items:
         seen = item.get("seen")
@@ -87,7 +84,6 @@ def format_last_seen_items(items):
         })
 
     return formatted
-
 
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")

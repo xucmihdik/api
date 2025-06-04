@@ -59,59 +59,32 @@ def format_stock_items(items):
         for item in items
     ]
 
+def convert_seen_and_add_lastseen(item):
+    tz = pytz.timezone("America/New_York")
+    seen_raw = item.get("seen")
+    if seen_raw:
+        try:
+            dt_utc = datetime.fromisoformat(seen_raw.replace("Z", "+00:00"))
+            dt_local = dt_utc.astimezone(tz)
+            # Format just time for "seen"
+            item["seen"] = dt_local.strftime("%I:%M:%S %p").lstrip("0")
+            # Format full date + time for "lastSeen"
+            item["lastSeen"] = dt_local.strftime("%m/%d/%Y, %I:%M:%S %p").lstrip("0")
+        except Exception:
+            item["seen"] = "Invalid date"
+            item["lastSeen"] = "Invalid date"
+    else:
+        item["seen"] = "N/A"
+        item["lastSeen"] = "N/A"
+    return item
+
 def format_last_seen_items(items):
     if not isinstance(items, list):
         return []
-
-    tz = pytz.timezone("America/New_York")
-    formatted = []
-    for item in items:
-        seen = item.get("seen")
-        if seen:
-            try:
-                dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
-                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
-            except Exception:
-                seen_str = "Invalid date"
-        else:
-            seen_str = "N/A"
-
-        formatted.append({
-            "name": item.get("name"),
-            "image": item.get("image"),
-            "emoji": item.get("emoji"),
-            "seen": seen_str,
-        })
-
-    return formatted
+    return [convert_seen_and_add_lastseen(item) for item in items]
 
 def format_weather_items(items):
-    if not isinstance(items, list):
-        return []
-    tz = pytz.timezone("America/New_York")
-    formatted = []
-
-    for item in items:
-        seen_raw = item.get("seen")
-        last_seen_time = "N/A"
-        if seen_raw:
-            try:
-                dt = datetime.strptime(seen_raw, "%m/%d/%Y, %I:%M:%S %p").astimezone(tz)
-                last_seen_time = dt.strftime("%I:%M:%S %p")
-            except Exception:
-                last_seen_time = "Invalid date"
-        else:
-            last_seen_time = "N/A"
-
-        formatted.append({
-            "emoji": item.get("emoji"),
-            "image": item.get("image"),
-            "name": item.get("name"),
-            "seen": seen_raw,
-            "lastSeen": last_seen_time
-        })
-
-    return formatted
+    return format_last_seen_items(items)
 
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")

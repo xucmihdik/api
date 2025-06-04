@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 import requests
 from datetime import datetime
 import pytz
+import time
 
 app = Flask(__name__)
 
@@ -17,34 +18,19 @@ HEADERS = {
 
 URL = "https://growagarden.gg/api/ws/stocks.getAll?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D"
 
+cache = {
+    "data": None,
+    "timestamp": 0
+}
+
 def fetch_stocks():
     try:
         response = requests.get(URL, headers=HEADERS, timeout=10)
         if response.status_code != 200:
-            return {
-                "status": response.status_code,
-                "message": f"Request failed with status {response.status_code}. Body: {response.text[:200]}"
-            }, None
-
-        try:
-            data = response.json()
-        except ValueError as e:
-            return {
-                "status": 500,
-                "message": f"Invalid JSON response: {str(e)}. Received: {response.text[:200]}"
-            }, None
-
-        return None, data
-    except requests.exceptions.Timeout:
-        return {
-            "status": 504,
-            "message": "Request timed out"
-        }, None
-    except requests.exceptions.RequestException as e:
-        return {
-            "status": 502,
-            "message": f"Problem with request: {str(e)}"
-        }, None
+            return None
+        return response.json()
+    except:
+        return None
 
 def format_stock_items(items):
     if not isinstance(items, list):
@@ -71,7 +57,7 @@ def format_last_seen_items(items):
             try:
                 dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
                 seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
-            except Exception:
+            except:
                 seen_str = "Invalid date"
         else:
             seen_str = "N/A"
@@ -88,7 +74,7 @@ def format_last_seen_items(items):
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")
     if not stocks:
-        raise ValueError("Malformed data structure from upstream API")
+        return None
 
     return {
         "GearStock": format_stock_items(stocks.get("gearStock", [])),
@@ -108,27 +94,33 @@ def format_stocks(data):
 
 @app.route("/api/stock/GetStock", methods=["GET"])
 def get_stock():
-    error, data = fetch_stocks()
-    if error:
-        return jsonify({
-            "success": False,
-            "error": {
-                "code": error.get("status", 500),
-                "message": error.get("message", "Unknown error")
-            }
-        }), error.get("status", 500)
+    now = time.time()
+    if not cache["data"] or now - cache["timestamp"] > 30:
+        raw_data = fetch_stocks()
+        if not raw_data:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "code": 502,
+                    "message": "Failed to fetch upstream data."
+                }
+            }), 502
 
-    try:
-        formatted = format_stocks(data)
-        return jsonify({
+        formatted = format_stocks(raw_data)
+        if not formatted:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "code": 500,
+                    "message": "Failed to process data structure."
+                }
+            }), 500
+
+        cache["data"] = {
             "success": True,
+            "fetched_at": datetime.now(pytz.timezone("America/New_York")).strftime("%m/%d/%Y, %I:%M:%S %p"),
             **formatted
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": {
-                "code": 500,
-                "message": f"Error processing stock data: {str(e)}"
-            }
-        }), 500
+        }
+        cache["timestamp"] = now
+
+    return jsonify(cache["data"]), 200

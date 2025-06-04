@@ -96,19 +96,18 @@ def format_weather_items(items):
         last_seen_time = "N/A"
         if seen_raw:
             try:
-                dt = datetime.fromisoformat(seen_raw.rstrip("Z")).astimezone(tz)
-                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+                dt = datetime.strptime(seen_raw, "%m/%d/%Y, %I:%M:%S %p").astimezone(tz)
                 last_seen_time = dt.strftime("%I:%M:%S %p")
             except Exception:
-                seen_str = seen_raw
+                last_seen_time = "Invalid date"
         else:
-            seen_str = "N/A"
+            last_seen_time = "N/A"
 
         formatted.append({
             "emoji": item.get("emoji"),
             "image": item.get("image"),
             "name": item.get("name"),
-            "seen": seen_str,
+            "seen": seen_raw,
             "lastSeen": last_seen_time
         })
 

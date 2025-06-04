@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 import requests
 from datetime import datetime
-import pytz  
+import pytz
 
 app = Flask(__name__)
 
@@ -60,42 +60,41 @@ def format_stock_items(items):
         for item in items
     ]
 
-
 def format_last_seen_items(items):
     if not isinstance(items, list):
         return []
 
     tz = pytz.timezone("America/New_York")
-    formatted = []
 
+    formatted = []
     for item in items:
         seen = item.get("seen")
-        last_seen = item.get("lastSeen")
-
         if seen:
             try:
                 dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
-                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")  # 12-hour format with AM/PM
             except Exception:
                 seen_str = "Invalid date"
         else:
             seen_str = "N/A"
 
-        if last_seen:
+        # Include lastSeen field if available and convert format, else fallback to seen_str
+        last_seen_raw = item.get("lastSeen") or item.get("lastseen") or None
+        if last_seen_raw:
             try:
-                dt_last = datetime.fromisoformat(last_seen.rstrip("Z")).astimezone(tz)
+                dt_last = datetime.fromisoformat(last_seen_raw.rstrip("Z")).astimezone(tz)
                 last_seen_str = dt_last.strftime("%m/%d/%Y, %I:%M:%S %p")
             except Exception:
                 last_seen_str = "Invalid date"
         else:
-            last_seen_str = "N/A"
+            last_seen_str = seen_str  # fallback to seen if no lastSeen
 
         formatted.append({
             "name": item.get("name"),
             "image": item.get("image"),
             "emoji": item.get("emoji"),
             "seen": seen_str,
-            "lastSeen": last_seen_str
+            "lastSeen": last_seen_str,
         })
 
     return formatted
@@ -117,7 +116,7 @@ def format_stocks(data):
         "LastSeen": {
             "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
             "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
-            "Weather": format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", [])),
+            "Weather": format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", [])),  # FIXED: added lastSeen field here
             "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
         }
     }

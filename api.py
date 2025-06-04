@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 import requests
 from datetime import datetime
 import pytz
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
@@ -17,66 +18,158 @@ HEADERS = {
 
 URL = "https://growagarden.gg/api/ws/stocks.getAll?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D"
 
-
 def fetch_stocks():
     try:
-        res = requests.get(URL, headers=HEADERS, timeout=10)
-        res.raise_for_status()
-        return res.json()
+        response = requests.get(URL, headers=HEADERS, timeout=10)
+        if response.status_code != 200:
+            return {
+                "status": response.status_code,
+                "message": f"Request failed with status {response.status_code}. Body: {response.text[:200]}"
+            }, None
+
+        try:
+            data = response.json()
+        except ValueError as e:
+            return {
+                "status": 500,
+                "message": f"Invalid JSON response: {str(e)}. Received: {response.text[:200]}"
+            }, None
+
+        return None, data
+    except requests.exceptions.Timeout:
+        return {
+            "status": 504,
+            "message": "Request timed out"
+        }, None
+    except requests.exceptions.RequestException as e:
+        return {
+            "status": 502,
+            "message": f"Problem with request: {str(e)}"
+        }, None
+
+
+def format_stock_items(items):
+    if not isinstance(items, list):
+        return []
+    return [
+        {
+            "name": item.get("name"),
+            "value": item.get("value"),
+            "image": item.get("image"),
+            "emoji": item.get("emoji"),
+        }
+        for item in items
+    ]
+
+
+def format_last_seen_items(items):
+    if not isinstance(items, list):
+        return []
+
+    tz = pytz.timezone("America/New_York")
+    formatted = []
+    for item in items:
+        seen = item.get("seen")
+        if seen:
+            try:
+                dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
+                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+            except Exception:
+                seen_str = "Invalid date"
+        else:
+            seen_str = "N/A"
+
+        formatted.append({
+            "name": item.get("name"),
+            "image": item.get("image"),
+            "emoji": item.get("emoji"),
+            "seen": seen_str,
+        })
+
+    return formatted
+
+
+def fetch_weather_last_seen():
+    try:
+        resp = requests.get("https://growagarden.gg/weather", headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        containers = soup.find_all("div", class_="weather-item")
+
+        weather_data = []
+        for container in containers:
+            emoji_elem = container.find("div", class_="weather-emoji")
+            name_elem = container.find("div", class_="weather-name")
+            seen_elem = container.find("div", class_="weather-last-seen")
+            status_elem = container.find("div", class_="weather-status")
+
+            emoji = emoji_elem.text.strip() if emoji_elem else ""
+            name = name_elem.text.strip() if name_elem else ""
+            seen = seen_elem.text.replace("Last seen at", "").strip() if seen_elem else "N/A"
+            status = status_elem.text.strip() if status_elem else "Unknown"
+
+            weather_data.append({
+                "emoji": emoji,
+                "name": name,
+                "lastseen": seen,
+                "status": status
+            })
+
+        return weather_data
     except Exception as e:
-        return {"error": str(e)}
+        app.logger.warning(f"Failed to fetch weather last seen data: {str(e)}")
+        return []
 
 
-def format_seen(seen_iso):
-    try:
-        utc_time = datetime.fromisoformat(seen_iso.replace("Z", "+00:00"))
-        local_time = utc_time.astimezone(pytz.timezone("America/New_York"))
-        return local_time.strftime("%I:%M:%S %p")  # Just time
-    except Exception:
-        return "Invalid time"
+def format_stocks(data):
+    stocks = data[0].get("result", {}).get("data", {}).get("json")
+    if not stocks:
+        raise ValueError("Malformed data structure from upstream API")
 
-
-@app.route("/")
-def home():
-    return jsonify({"message": "GAG Stocks API"})
-
-
-@app.route("/api/stocks")
-def stocks():
-    data = fetch_stocks()
-    if "error" in data:
-        return jsonify({"error": data["error"]}), 500
-
-    try:
-        items = data[0]["result"]["data"]["json"]["items"]
-    except (KeyError, IndexError, TypeError):
-        return jsonify({"error": "Unexpected data structure"}), 500
-
-    output = {
-        "Plants": [],
-        "Weather": [],
-        "Other": []
+    return {
+        "GearStock": format_stock_items(stocks.get("gearStock", [])),
+        "EggStock": format_stock_items(stocks.get("eggStock", [])),
+        "SeedsStock": format_stock_items(stocks.get("seedsStock", [])),
+        "NightStock": format_stock_items(stocks.get("nightStock", [])),
+        "BloodStock": format_stock_items(stocks.get("bloodStock", [])),
+        "CosmeticsStock": format_stock_items(stocks.get("cosmeticsStock", [])),
+        "HoneyStock": format_stock_items(stocks.get("honeyStock", [])),
+        "LastSeen": {
+            "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
+            "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
+            "Weather": fetch_weather_last_seen(),
+            "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
+        }
     }
 
-    for item in items:
-        item_type = item.get("type")
-        base = {
-            "emoji": item.get("emoji"),
-            "image": item.get("image"),
-            "name": item.get("name"),
-        }
 
-        if item_type == "plant":
-            base["value"] = item.get("value")
-            output["Plants"].append(base)
-        elif item_type == "weather":
-            seen_iso = item.get("seen")
-            time_str = format_seen(seen_iso)
-            base["seen"] = time_str
-            base["lastSeen"] = time_str
-            output["Weather"].append(base)
-        elif item_type == "other":
-            base["value"] = item.get("value")
-            output["Other"].append(base)
+@app.route("/api/stock/GetStock", methods=["GET"])
+def get_stock():
+    error, data = fetch_stocks()
+    if error:
+        app.logger.error(f"[GetStock API] Fetch error: Status {error['status']}, Message: {error['message']}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "code": error.get("status", 500),
+                "message": error.get("message", "Unknown error")
+            }
+        }), error.get("status", 500)
 
-    return jsonify(output)
+    try:
+        formatted = format_stocks(data)
+        return jsonify({
+            "success": True,
+            **formatted
+        }), 200
+    except Exception as e:
+        app.logger.error(f"[GetStock API] Formatting error: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": {
+                "code": 500,
+                "message": f"Error processing stock data: {str(e)}"
+            }
+        }), 500

@@ -61,53 +61,63 @@ def format_stock_items(items):
 
 def format_last_seen_items(items):
     if not isinstance(items, list):
-        return [], "N/A"
+        return []
 
     tz = pytz.timezone("America/New_York")
     formatted = []
-    latest_dt = None
-
     for item in items:
         seen = item.get("seen")
         if seen:
             try:
                 dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
                 seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
-                formatted.append({
-                    "name": item.get("name"),
-                    "image": item.get("image"),
-                    "emoji": item.get("emoji"),
-                    "seen": seen_str,
-                })
-                if not latest_dt or dt > latest_dt:
-                    latest_dt = dt
             except Exception:
-                formatted.append({
-                    "name": item.get("name"),
-                    "image": item.get("image"),
-                    "emoji": item.get("emoji"),
-                    "seen": "Invalid date",
-                })
+                seen_str = "Invalid date"
         else:
-            formatted.append({
-                "name": item.get("name"),
-                "image": item.get("image"),
-                "emoji": item.get("emoji"),
-                "seen": "N/A",
-            })
+            seen_str = "N/A"
 
-    last_seen_time = latest_dt.strftime("%I:%M:%S %p") if latest_dt else "N/A"
-    return formatted, last_seen_time
+        formatted.append({
+            "name": item.get("name"),
+            "image": item.get("image"),
+            "emoji": item.get("emoji"),
+            "seen": seen_str,
+        })
+
+    return formatted
+
+def format_weather_items(items):
+    if not isinstance(items, list):
+        return []
+    tz = pytz.timezone("America/New_York")
+    formatted = []
+
+    for item in items:
+        seen_raw = item.get("seen")
+        last_seen_time = "N/A"
+        if seen_raw:
+            try:
+                dt = datetime.fromisoformat(seen_raw.rstrip("Z")).astimezone(tz)
+                seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+                last_seen_time = dt.strftime("%I:%M:%S %p")
+            except Exception:
+                seen_str = seen_raw
+        else:
+            seen_str = "N/A"
+
+        formatted.append({
+            "emoji": item.get("emoji"),
+            "image": item.get("image"),
+            "name": item.get("name"),
+            "seen": seen_str,
+            "lastSeen": last_seen_time
+        })
+
+    return formatted
 
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")
     if not stocks:
         raise ValueError("Malformed data structure from upstream API")
-
-    weather_items, weather_last_seen = format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", []))
-    seeds_items, _ = format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", []))
-    gears_items, _ = format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", []))
-    eggs_items, _ = format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", []))
 
     return {
         "GearStock": format_stock_items(stocks.get("gearStock", [])),
@@ -118,13 +128,10 @@ def format_stocks(data):
         "CosmeticsStock": format_stock_items(stocks.get("cosmeticsStock", [])),
         "HoneyStock": format_stock_items(stocks.get("honeyStock", [])),
         "LastSeen": {
-            "Seeds": seeds_items,
-            "Gears": gears_items,
-            "Eggs": eggs_items,
-            "Weather": {
-                "lastSeen": weather_last_seen,
-                "items": weather_items
-            }
+            "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
+            "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
+            "Weather": format_weather_items(stocks.get("lastSeen", {}).get("Weather", [])),
+            "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
         }
     }
 
@@ -154,3 +161,6 @@ def get_stock():
                 "message": f"Error processing stock data: {str(e)}"
             }
         }), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)

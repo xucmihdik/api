@@ -66,10 +66,12 @@ def format_last_seen_items(items):
         return []
 
     tz = pytz.timezone("America/New_York")
-
     formatted = []
+
     for item in items:
         seen = item.get("seen")
+        last_seen = item.get("lastSeen")
+
         if seen:
             try:
                 dt = datetime.fromisoformat(seen.rstrip("Z")).astimezone(tz)
@@ -79,11 +81,21 @@ def format_last_seen_items(items):
         else:
             seen_str = "N/A"
 
+        if last_seen:
+            try:
+                dt_last = datetime.fromisoformat(last_seen.rstrip("Z")).astimezone(tz)
+                last_seen_str = dt_last.strftime("%m/%d/%Y, %I:%M:%S %p")
+            except Exception:
+                last_seen_str = "Invalid date"
+        else:
+            last_seen_str = "N/A"
+
         formatted.append({
             "name": item.get("name"),
             "image": item.get("image"),
             "emoji": item.get("emoji"),
             "seen": seen_str,
+            "lastSeen": last_seen_str
         })
 
     return formatted

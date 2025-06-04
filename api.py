@@ -1,8 +1,7 @@
 from flask import Flask, jsonify
 import requests
 from datetime import datetime
-import pytz
-from bs4 import BeautifulSoup
+import pytz  
 
 app = Flask(__name__)
 
@@ -67,6 +66,7 @@ def format_last_seen_items(items):
         return []
 
     tz = pytz.timezone("America/New_York")
+
     formatted = []
     for item in items:
         seen = item.get("seen")
@@ -89,40 +89,6 @@ def format_last_seen_items(items):
     return formatted
 
 
-def fetch_weather_last_seen():
-    try:
-        resp = requests.get("https://growagarden.gg/weather", headers=HEADERS, timeout=10)
-        if resp.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        containers = soup.find_all("div", class_="weather-item")
-
-        weather_data = []
-        for container in containers:
-            emoji_elem = container.find("div", class_="weather-emoji")
-            name_elem = container.find("div", class_="weather-name")
-            seen_elem = container.find("div", class_="weather-last-seen")
-            status_elem = container.find("div", class_="weather-status")
-
-            emoji = emoji_elem.text.strip() if emoji_elem else ""
-            name = name_elem.text.strip() if name_elem else ""
-            seen = seen_elem.text.replace("Last seen at", "").strip() if seen_elem else "N/A"
-            status = status_elem.text.strip() if status_elem else "Unknown"
-
-            weather_data.append({
-                "emoji": emoji,
-                "name": name,
-                "lastseen": seen,
-                "status": status
-            })
-
-        return weather_data
-    except Exception as e:
-        app.logger.warning(f"Failed to fetch weather last seen data: {str(e)}")
-        return []
-
-
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")
     if not stocks:
@@ -139,7 +105,7 @@ def format_stocks(data):
         "LastSeen": {
             "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
             "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
-            "Weather": fetch_weather_last_seen(),
+            "Weather": format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", [])),
             "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
         }
     }

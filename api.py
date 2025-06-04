@@ -20,131 +20,63 @@ URL = "https://growagarden.gg/api/ws/stocks.getAll?batch=1&input=%7B%220%22%3A%7
 
 def fetch_stocks():
     try:
-        response = requests.get(URL, headers=HEADERS, timeout=10)
-        if response.status_code != 200:
-            return {
-                "status": response.status_code,
-                "message": f"Request failed with status {response.status_code}. Body: {response.text[:200]}"
-            }, None
-
-        try:
-            data = response.json()
-        except ValueError as e:
-            return {
-                "status": 500,
-                "message": f"Invalid JSON response: {str(e)}. Received: {response.text[:200]}"
-            }, None
-
-        return None, data
-    except requests.exceptions.Timeout:
-        return {
-            "status": 504,
-            "message": "Request timed out"
-        }, None
-    except requests.exceptions.RequestException as e:
-        return {
-            "status": 502,
-            "message": f"Problem with request: {str(e)}"
-        }, None
+        res = requests.get(URL, headers=HEADERS, timeout=10)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 
-def format_stock_items(items):
-    if not isinstance(items, list):
-        return []
-    return [
-        {
-            "name": item.get("name"),
-            "value": item.get("value"),
-            "image": item.get("image"),
-            "emoji": item.get("emoji"),
-        }
-        for item in items
-    ]
+def format_seen(seen_iso):
+    try:
+        utc_time = datetime.fromisoformat(seen_iso.replace("Z", "+00:00"))
+        local_time = utc_time.astimezone(pytz.timezone("America/New_York"))
+        return local_time.strftime("%I:%M:%S %p")  # Just time
+    except Exception:
+        return "Invalid time"
 
 
-def format_last_seen_items(items):
-    if not isinstance(items, list):
-        return []
-
-    tz = pytz.timezone("America/New_York")
-    formatted = []
-    for item in items:
-        seen = item.get("seen")
-        if seen:
-            try:
-                # Remove 'Z' if present, parse as UTC time, then convert to tz
-                if seen.endswith("Z"):
-                    seen = seen[:-1]
-                dt = datetime.fromisoformat(seen).replace(tzinfo=pytz.UTC).astimezone(tz)
-                last_seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
-                seen_str = dt.strftime("%I:%M:%S %p")  # time only for 'seen'
-            except Exception:
-                last_seen_str = "Invalid date"
-                seen_str = "Invalid time"
-        else:
-            last_seen_str = "N/A"
-            seen_str = "N/A"
-
-        formatted.append({
-            "name": item.get("name"),
-            "image": item.get("image"),
-            "emoji": item.get("emoji"),
-            "lastSeen": last_seen_str,
-            "seen": seen_str,
-        })
-
-    return formatted
+@app.route("/")
+def home():
+    return jsonify({"message": "GAG Stocks API"})
 
 
-def format_stocks(data):
-    stocks = data[0].get("result", {}).get("data", {}).get("json")
-    if not stocks:
-        raise ValueError("Malformed data structure from upstream API")
-
-    return {
-        "GearStock": format_stock_items(stocks.get("gearStock", [])),
-        "EggStock": format_stock_items(stocks.get("eggStock", [])),
-        "SeedsStock": format_stock_items(stocks.get("seedsStock", [])),
-        "NightStock": format_stock_items(stocks.get("nightStock", [])),
-        "BloodStock": format_stock_items(stocks.get("bloodStock", [])),
-        "CosmeticsStock": format_stock_items(stocks.get("cosmeticsStock", [])),
-        "HoneyStock": format_stock_items(stocks.get("honeyStock", [])),
-        "LastSeen": {
-            "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
-            "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
-            "Weather": format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", [])),
-            "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
-        }
-    }
-
-
-@app.route("/api/stock/GetStock", methods=["GET"])
-def get_stock():
-    error, data = fetch_stocks()
-    if error:
-        return jsonify({
-            "success": False,
-            "error": {
-                "code": error.get("status", 500),
-                "message": error.get("message", "Unknown error")
-            }
-        }), error.get("status", 500)
+@app.route("/api/stocks")
+def stocks():
+    data = fetch_stocks()
+    if "error" in data:
+        return jsonify({"error": data["error"]}), 500
 
     try:
-        formatted = format_stocks(data)
-        return jsonify({
-            "success": True,
-            **formatted
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": {
-                "code": 500,
-                "message": f"Error processing stock data: {str(e)}"
-            }
-        }), 500
+        items = data[0]["result"]["data"]["json"]["items"]
+    except (KeyError, IndexError, TypeError):
+        return jsonify({"error": "Unexpected data structure"}), 500
 
+    output = {
+        "Plants": [],
+        "Weather": [],
+        "Other": []
+    }
 
-if __name__ == "__main__":
-    app.run(debug=True)
+    for item in items:
+        item_type = item.get("type")
+        base = {
+            "emoji": item.get("emoji"),
+            "image": item.get("image"),
+            "name": item.get("name"),
+        }
+
+        if item_type == "plant":
+            base["value"] = item.get("value")
+            output["Plants"].append(base)
+        elif item_type == "weather":
+            seen_iso = item.get("seen")
+            time_str = format_seen(seen_iso)
+            base["seen"] = time_str
+            base["lastSeen"] = time_str
+            output["Weather"].append(base)
+        elif item_type == "other":
+            base["value"] = item.get("value")
+            output["Other"].append(base)
+
+    return jsonify(output)

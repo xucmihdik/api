@@ -17,6 +17,7 @@ HEADERS = {
 
 URL = "https://growagarden.gg/api/ws/stocks.getAll?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D"
 
+
 def fetch_stocks():
     try:
         response = requests.get(URL, headers=HEADERS, timeout=10)
@@ -46,6 +47,7 @@ def fetch_stocks():
             "message": f"Problem with request: {str(e)}"
         }, None
 
+
 def format_stock_items(items):
     if not isinstance(items, list):
         return []
@@ -59,32 +61,40 @@ def format_stock_items(items):
         for item in items
     ]
 
-def convert_seen_and_add_lastseen(item):
-    tz = pytz.timezone("America/New_York")
-    seen_raw = item.get("seen")
-    if seen_raw:
-        try:
-            dt_utc = datetime.fromisoformat(seen_raw.replace("Z", "+00:00"))
-            dt_local = dt_utc.astimezone(tz)
-            # Format just time for "seen"
-            item["seen"] = dt_local.strftime("%I:%M:%S %p").lstrip("0")
-            # Format full date + time for "lastSeen"
-            item["lastSeen"] = dt_local.strftime("%m/%d/%Y, %I:%M:%S %p").lstrip("0")
-        except Exception:
-            item["seen"] = "Invalid date"
-            item["lastSeen"] = "Invalid date"
-    else:
-        item["seen"] = "N/A"
-        item["lastSeen"] = "N/A"
-    return item
 
 def format_last_seen_items(items):
     if not isinstance(items, list):
         return []
-    return [convert_seen_and_add_lastseen(item) for item in items]
 
-def format_weather_items(items):
-    return format_last_seen_items(items)
+    tz = pytz.timezone("America/New_York")
+    formatted = []
+    for item in items:
+        seen = item.get("seen")
+        if seen:
+            try:
+                # Remove 'Z' if present, parse as UTC time, then convert to tz
+                if seen.endswith("Z"):
+                    seen = seen[:-1]
+                dt = datetime.fromisoformat(seen).replace(tzinfo=pytz.UTC).astimezone(tz)
+                last_seen_str = dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+                seen_str = dt.strftime("%I:%M:%S %p")  # time only for 'seen'
+            except Exception:
+                last_seen_str = "Invalid date"
+                seen_str = "Invalid time"
+        else:
+            last_seen_str = "N/A"
+            seen_str = "N/A"
+
+        formatted.append({
+            "name": item.get("name"),
+            "image": item.get("image"),
+            "emoji": item.get("emoji"),
+            "lastSeen": last_seen_str,
+            "seen": seen_str,
+        })
+
+    return formatted
+
 
 def format_stocks(data):
     stocks = data[0].get("result", {}).get("data", {}).get("json")
@@ -102,10 +112,11 @@ def format_stocks(data):
         "LastSeen": {
             "Seeds": format_last_seen_items(stocks.get("lastSeen", {}).get("Seeds", [])),
             "Gears": format_last_seen_items(stocks.get("lastSeen", {}).get("Gears", [])),
-            "Weather": format_weather_items(stocks.get("lastSeen", {}).get("Weather", [])),
+            "Weather": format_last_seen_items(stocks.get("lastSeen", {}).get("Weather", [])),
             "Eggs": format_last_seen_items(stocks.get("lastSeen", {}).get("Eggs", [])),
         }
     }
+
 
 @app.route("/api/stock/GetStock", methods=["GET"])
 def get_stock():
@@ -133,6 +144,7 @@ def get_stock():
                 "message": f"Error processing stock data: {str(e)}"
             }
         }), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True)
